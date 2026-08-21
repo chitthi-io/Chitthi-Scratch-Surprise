@@ -135,6 +135,8 @@ canvas.scratch.gone{ opacity:0; transform:scale(1.04); animation:none; pointer-e
 .pct{ margin:18px auto 0; font-size:.78rem; font-weight:800; letter-spacing:.08em;
   color:var(--amber-deep); text-transform:uppercase; }
 .note{ max-width:480px; margin:44px auto 0; text-align:center; }
+.gift3d{ width:min(46vw,190px); aspect-ratio:1; margin:26px auto 6px; }
+.gift3d canvas{ display:block; width:100% !important; height:100% !important; }
 footer{ text-align:center; padding:40px 22px 56px; color:var(--slate); font-size:.84rem; }
 footer b{ color:var(--ink); }
 </style>
@@ -154,6 +156,7 @@ footer b{ color:var(--ink); }
   <h1>Something shiny is hiding a <span class="ital">secret</span></h1>
   <p class="sub">Use your finger. Scratch the metallic foil away. See what's been waiting underneath.</p>
   <button class="btn btn-rose btn-lg" id="startBtn" style="margin-top:30px;">Begin ✨</button>
+  <div class="gift3d" id="gift3d" role="img" aria-label="A 3D gift box — its lid opens when the surprise is revealed"></div>
   <p class="hand" style="margin-top:16px;">"no peeking — scratch like you mean it."</p>
 </section>
 
@@ -182,10 +185,13 @@ footer b{ color:var(--ink); }
   </div>
   <footer>
     Made with 💌 by <b>chitthi.io</b><br>
-    A private keepsake — please keep this link between the two of you.
+    A private keepsake — please keep this link between the two of you.<br>
+    <small style="opacity:.55;">Gift box 3D model by Neelam Devi — Sketchfab (Free Standard)</small>
   </footer>
 </section>
 
+<script src="three.min.js"></script>
+<script src="GLTFLoader.js"></script>
 <script>
 /* ==========================================================================
    chitthi.io keepsake — DIGITAL SCRATCH-TO-REVEAL SURPRISE (template 11)
@@ -363,7 +369,70 @@ const CLIENT_CONFIG = {
     $("#pct").textContent = "100% — it's all yours 💛";
     const r = foil.getBoundingClientRect();
     burst(r.left + r.width/2, r.top + r.height/2, 60, GOLD);
+    if(gift3d && gift3d.openLid) gift3d.openLid();   /* 3D gift box springs open */
     setTimeout(()=>foil.remove(), 900);
+  }
+
+  /* ---- real 3D gift box (self-hosted three.js, Sketchfab CC-BY) ---- */
+  const giftMount = $("#gift3d");
+  let gift3d = null;
+  if(giftMount && window.THREE && window.THREE.GLTFLoader){
+    try{
+      const reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const renderer = new THREE.WebGLRenderer({ alpha:true, antialias:true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(giftMount.clientWidth, giftMount.clientHeight);
+      giftMount.appendChild(renderer.domElement);
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 100);
+      scene.add(new THREE.HemisphereLight(0xffffff, 0xd9cfc4, 1.1));
+      const key = new THREE.DirectionalLight(0xffffff, 1.4); key.position.set(4, 6, 5); scene.add(key);
+      gift3d = { ready:false, triangles:0, visible:true, elapsed:0, lid:null, lidOpen:0, opening:false };
+      window.__chitthi3d = gift3d;
+      new THREE.GLTFLoader().load("model/model.glb", (gltf)=>{
+        const obj = gltf.scene;
+        const box = new THREE.Box3().setFromObject(obj);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const s = 1.85 / Math.max(size.x, size.y, size.z);
+        obj.scale.setScalar(s);
+        obj.position.sub(center.multiplyScalar(s));
+        scene.add(obj);
+        gift3d.obj = obj;
+        gift3d.lid = obj.getObjectByName("GiftLid") || null;
+        gift3d.ready = true;
+        if(reduced) renderOne();
+      }, undefined, ()=>console.warn("3D gift box failed to load"));
+      camera.position.set(0, 0.35, 4.3);
+      camera.lookAt(0, 0, 0);
+      function renderOne(){
+        if(gift3d.lid && gift3d.opening){
+          gift3d.lid.rotation.x = -gift3d.lidOpen * 1.15;   /* lid hinges open */
+          gift3d.lid.position.y = gift3d.lidOpen * 0.4;
+        }
+        renderer.render(scene, camera); gift3d.triangles = renderer.info.render.triangles;
+      }
+      if(!reduced){
+        (function loop(){
+          requestAnimationFrame(loop);
+          if(!gift3d.visible) return;
+          gift3d.elapsed += 0.016;
+          if(gift3d.obj && !gift3d.opening) gift3d.obj.rotation.y = Math.sin(gift3d.elapsed * 0.6) * 0.42;
+          renderOne();
+        })();
+      }else{ renderOne(); }
+      new IntersectionObserver((es)=>es.forEach(e=>{ gift3d.visible = e.isIntersecting; }),{ threshold:0 }).observe(giftMount);
+      gift3d.openLid = ()=>{
+        if(!gift3d.lid) return;
+        gift3d.opening = true;
+        const t0 = performance.now();
+        (function step(){
+          gift3d.lidOpen = Math.min(1, (performance.now() - t0) / 900);
+          renderOne();
+          if(gift3d.lidOpen < 1) requestAnimationFrame(step);
+        })();
+      };
+    }catch(e){ console.warn("WebGL unavailable — keepsake continues", e); gift3d = null; }
   }
 
   foil.addEventListener("pointerdown", (e)=>{
